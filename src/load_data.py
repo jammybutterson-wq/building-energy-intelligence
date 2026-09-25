@@ -13,6 +13,7 @@ def load_data(filepath):
 # --------------------
 
 df = load_data("data/raw/electricity_cleaned.txt")
+metadata_df = load_data("data/raw/metadata.txt")
 
 
 # --------------------
@@ -37,6 +38,7 @@ df["timestamp"] = pd.to_datetime(df["timestamp"])
 duplicate_count = df["timestamp"].duplicated().sum()
 
 time_gaps = df["timestamp"].diff().dropna()
+
 incorrect_time_gaps = (
     time_gaps != pd.Timedelta(hours=1)
 ).sum()
@@ -53,14 +55,12 @@ meter_columns = df.columns.drop("timestamp")
 
 meter_results = []
 
-
 for meter in meter_columns:
 
     meter_data = df[meter]
 
     # Basic statistics
     valid_count = meter_data.count()
-
     average_valid_reading = meter_data.mean()
     minimum_valid_reading = meter_data.min()
     maximum_valid_reading = meter_data.max()
@@ -70,7 +70,6 @@ for meter in meter_columns:
         / len(meter_data)
         * 100
     )
-
 
     # Active period
     valid_readings = meter_data.dropna()
@@ -92,7 +91,6 @@ for meter in meter_columns:
         "timestamp"
     ]
 
-
     # Active-period coverage
     possible_readings = (
         last_valid_index
@@ -105,7 +103,6 @@ for meter in meter_columns:
         / possible_readings
         * 100
     )
-
 
     # Longest internal missing gap
     current_gap = 0
@@ -122,7 +119,6 @@ for meter in meter_columns:
 
         else:
             current_gap = 0
-
 
     # Store meter results
     meter_result = {
@@ -162,14 +158,12 @@ good_condition = (
     (quality_df["longest_gap"] <= 168)
 )
 
-
 # Poor:
 # < 80% active-period coverage
 
 poor_condition = (
     quality_df["active_coverage"] < 80
 )
-
 
 # Everything starts as Review
 quality_df["quality_status"] = "Review"
@@ -205,7 +199,7 @@ quality_df["short_history_flag"] = (
 # --------------------
 
 # Keep Good/Review meters with enough history.
-# Large gaps remain as a warning rather than automatic exclusion.
+# Large gaps remain as warnings rather than automatic exclusions.
 
 quality_df["analysis_eligible"] = (
     (quality_df["quality_status"] != "Poor")
@@ -248,26 +242,43 @@ quality_df.to_csv(
     index=False
 )
 
-eligible_meters = quality_df[quality_df["analysis_eligible"]]["meter"]
 
-eligible_meters = eligible_meters.tolist()
+# --------------------
+# Prepare analysis data
+# --------------------
+
+eligible_meters = quality_df[
+    quality_df["analysis_eligible"]
+]["meter"].tolist()
 
 analysis_columns = ["timestamp"] + eligible_meters
-analysis_df = df[analysis_columns].copy()
-print(analysis_df.shape)
 
-print(
-    analysis_df[eligible_meters]
-    .notna()
-    .sum()
-    .sum()
-)
+analysis_df = df[
+    analysis_columns
+].copy()
 
-for start in range(0, len(eligible_meters), 100):
-    chunk_meters = eligible_meters[start:start + 100]
 
-    chunk_columns = ["timestamp"] + chunk_meters
-    chunk_df = analysis_df[chunk_columns].copy()
+# --------------------
+# Write electricity fact files
+# --------------------
+
+for start in range(
+    0,
+    len(eligible_meters),
+    100
+):
+
+    chunk_meters = eligible_meters[
+        start:start + 100
+    ]
+
+    chunk_columns = [
+        "timestamp"
+    ] + chunk_meters
+
+    chunk_df = analysis_df[
+        chunk_columns
+    ].copy()
 
     chunk_long = chunk_df.melt(
         id_vars="timestamp",
@@ -279,4 +290,49 @@ for start in range(0, len(eligible_meters), 100):
         subset=["electricity"]
     )
 
-    print(start, chunk_long.shape)
+    output_file = (
+        f"data/processed/"
+        f"electricity_long_{start:04d}.parquet"
+    )
+
+    chunk_long.to_parquet(
+        output_file,
+        index=False
+    )
+
+
+# --------------------
+# Create building dimension
+# --------------------
+
+eligible_quality_df = quality_df[
+    quality_df["analysis_eligible"]
+].copy()
+
+joined_df = eligible_quality_df.merge(
+    metadata_df,
+    how="left",
+    left_on="meter",
+    right_on="building_id"
+)
+
+building_dimension_df = joined_df[
+    [
+        "meter",
+        "site_id",
+        "primaryspaceusage",
+        "sub_primaryspaceusage",
+        "sqm",
+        "timezone"
+    ]
+].copy()
+
+
+# --------------------
+# Save building dimension
+# --------------------
+
+building_dimension_df.to_csv(
+    "data/processed/building_dimension.csv",
+    index=False
+)
