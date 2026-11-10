@@ -1,5 +1,7 @@
 # Building Energy Intelligence
 
+**Live Dashboard:** [Open the Streamlit app](https://building-energy-intelligence-34tc4uxckbr7uonybbzuj4.streamlit.app/)
+
 ## Overview
 
 Building Energy Intelligence is an analytics application that combines building electricity meter data, building metadata and weather data. It helps identify consumption trends, unusual energy behaviour and relationships between electricity use, building characteristics and temperature.
