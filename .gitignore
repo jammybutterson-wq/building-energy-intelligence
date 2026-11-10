@@ -1,6 +1,7 @@
 data/raw/*
-data/processed/*.parquet
 .venv/
+.venv_old/
+.agents/
 __pycache__/
 *.pyc
 .DS_Store
